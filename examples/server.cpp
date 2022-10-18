@@ -54,8 +54,7 @@ int main(void)
 
   while (true)
   {
-    server.update();
-    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    server.update(std::numeric_limits<size_t>::max(), true);
   }
 
   return 0;

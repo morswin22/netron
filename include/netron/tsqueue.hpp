@@ -33,6 +33,9 @@ namespace netron
     {
       std::lock_guard<std::mutex> lock(m_mutex);
       m_queue.emplace_back(std::move(item));
+
+      std::unique_lock<std::mutex> blocking_lock(m_blocking_mutex);
+      m_blocking_cv.notify_one();
     }
 
     // Adds an item to the front of the queue
@@ -40,6 +43,9 @@ namespace netron
     {
       std::lock_guard<std::mutex> lock(m_mutex);
       m_queue.emplace_front(std::move(item));
+
+      std::unique_lock<std::mutex> blocking_lock(m_blocking_mutex);
+      m_blocking_cv.notify_one();
     }
 
     // Returns true if queue has no items
@@ -81,9 +87,21 @@ namespace netron
       return t;
     }
 
+    void wait()
+    {
+      while (empty())
+      {
+        std::unique_lock<std::mutex> lock(m_blocking_mutex);
+        m_blocking_cv.wait(lock);
+      }
+    }
+
   protected:
     std::deque<T> m_queue;
     std::mutex m_mutex;
+
+    std::condition_variable m_blocking_cv;
+    std::mutex m_blocking_mutex;
   };
 
 }

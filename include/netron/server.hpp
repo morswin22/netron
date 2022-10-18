@@ -133,8 +133,11 @@ namespace netron
         );
     }
 
-    void update(size_t max_messages = -1)
+    void update(size_t max_messages = std::numeric_limits<size_t>::max(), bool wait = false)
     {
+      if (wait)
+        m_messages_in.wait();
+
       size_t message_count = 0;
       while (message_count < max_messages && !m_messages_in.empty())
       {
