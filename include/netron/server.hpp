@@ -72,7 +72,7 @@ namespace netron
             if (on_client_connect(new_connection))
             {
               m_connections.push_back(std::move(new_connection));
-              m_connections.back()->connect_to_client(m_id_counter++);
+              m_connections.back()->connect_to_client(this, m_id_counter++);
               std::cout << "[" << m_connections.back()->get_id() << "] Connection Approved" << '\n';
             }
             else
@@ -166,6 +166,13 @@ namespace netron
 
     // Called when a message arrives
     virtual void on_message(Client client, Message& msg)
+    {
+
+    }
+
+  public:
+    // Called when a client has been validated
+    virtual void on_client_validated(Client client)
     {
 
     }

@@ -8,6 +8,10 @@
 namespace netron 
 {
 
+  // Forward declare
+  template<typename T>
+  class server_interface;
+
   template<typename T>
   class connection : public std::enable_shared_from_this<connection<T>>
   {
@@ -22,6 +26,20 @@ namespace netron
       : m_asio_context(asio_context), m_socket(std::move(socket)), m_messages_in(messages_in)
     {
       m_owner_type = parent;
+
+      if (m_owner_type == owner::server)
+      {
+        // Naive implementation. It only protects against accidental connections.
+        m_handshake_out = uint64_t(std::chrono::system_clock::now().time_since_epoch().count());
+
+        // Precompute the handshake response
+        m_handshake_check = scramble(m_handshake_out);
+      }
+      else
+      {
+        m_handshake_in = 0;
+        m_handshake_out = 0;
+      }
     }
 
     virtual ~connection()
@@ -32,14 +50,15 @@ namespace netron
       return m_id;
     }
 
-    void connect_to_client(uint32_t uid = 0)
+    void connect_to_client(server_interface<T>* server, uint32_t uid = 0)
     {
       if (m_owner_type == owner::server)
       {
         if (m_socket.is_open())
         {
           m_id = uid;
-          read_header();
+          write_validation();
+          read_validation(server);
         }
       }
     }
@@ -53,7 +72,7 @@ namespace netron
           {
             if (!ec)
             {
-              read_header();
+              read_validation();
             }
           }
         );
@@ -206,6 +225,70 @@ namespace netron
       read_header();
     }
 
+    // Naive implementation. It only protects against accidental connections.
+    uint64_t scramble(uint64_t value)
+    {
+      uint64_t out = value ^ 0xCF2911F740C52729;
+      out = (out & 0xF0F0F0F0F0F0F0) >> 4 | (out & 0x0F0F0F0F0F0F0F) << 4;
+      return out ^ 0xAF1163442D8647C0;
+    }
+
+    // (ASYNC) Prime context ready to write validation
+    void write_validation()
+    {
+      asio::async_write(m_socket, asio::buffer(&m_handshake_out, sizeof(uint64_t)),
+        [this](std::error_code ec, std::size_t length)
+        {
+          if (!ec)
+          {
+            if (m_owner_type == owner::client)
+              read_header();
+          }
+          else
+          {
+            m_socket.close();
+          }
+        }
+      );
+    }
+
+    // (ASYNC) Prime context ready to read validation
+    void read_validation(server_interface<T>* server = nullptr)
+    {
+      asio::async_read(m_socket, asio::buffer(&m_handshake_in, sizeof(uint64_t)),
+        [this, server](std::error_code ec, std::size_t length)
+        {
+          if (!ec)
+          {
+            if (m_owner_type == owner::server)
+            {
+              if (m_handshake_in == m_handshake_check)
+              {
+                std::cout << "[" << get_id() << "] Client Validated\n";
+                server->on_client_validated(this->shared_from_this());
+                read_header();
+              }
+              else
+              {
+                std::cout << "[" << get_id() << "] Client Disconnected (Validation Fail)\n";
+                m_socket.close();
+              }
+            }
+            else
+            {
+              m_handshake_out = scramble(m_handshake_in);
+              write_validation();
+            }
+          }
+          else
+          {
+            std::cout << "[" << get_id() << "] Client Disconnected (read_validation)\n";
+            m_socket.close();
+          }
+        }
+      );
+    }
+
   protected:
     // Each connection has a unique socket to a remote
     asio::ip::tcp::socket m_socket;
@@ -225,6 +308,11 @@ namespace netron
 
     // Identifier of client
     uint32_t m_id = 0;
+
+    // Handshake validation
+    uint64_t m_handshake_out = 0;
+    uint64_t m_handshake_in = 0;
+    uint64_t m_handshake_check = 0;
   };
 
 }
