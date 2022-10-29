@@ -43,6 +43,31 @@ protected:
       message_all_clients(msg, client); // send message to all connected clients except this one
     }
     break;
+
+    case CustomMessageTypes::SendComplexData:
+    {
+      std::list<std::vector<Point>> list;
+      std::vector<Point> vec;
+      std::string str;
+      msg >> list >> vec >> str;
+
+      std::cout << "[" << client->get_id() << "]: Sent string '" << str << "'\n";
+
+      std::cout << "[" << client->get_id() << "]: and vector of size " << vec.size() << " -> ";
+      for (auto& i : vec)
+        std::cout << i << " ";
+      std::cout << "\n";
+
+      std::cout << "[" << client->get_id() << "]: and list of size " << list.size() << " -> ";
+      for (auto& i : list)
+      {
+        for (auto& j : i)
+          std::cout << j << " ";
+        std::cout << " | ";
+      }
+      std::cout << "\n";
+    }
+    break;
     }
   }
 };

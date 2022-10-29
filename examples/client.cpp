@@ -24,6 +24,16 @@ public:
     msg.header.id = CustomMessageTypes::MessageAll;
     send(msg); // message without body
   }
+
+  void SendString()
+  {
+    Message msg;
+    msg.header.id = CustomMessageTypes::SendComplexData;
+    msg << std::string("Hello from client!");
+    msg << std::vector<Point>{ Point(1, 9), Point(1, 0) };
+    msg << std::list<std::vector<Point>>{ { Point(1, 2), Point(3, 4) }, { Point(5, 6), Point(7, 8) } };
+    send(msg);
+  }
 };
 
 int main(void)
@@ -32,13 +42,14 @@ int main(void)
   client.connect("127.0.0.1", 60000);
 
 #ifdef OS_WINDOWS
-  bool key[3] = { false, false, false };
-  bool old_key[3] = { false, false, false };
-  
+  bool key[4] = { false, false, false, false };
+  bool old_key[4] = { false, false, false, false };
+
   std::cout << "Press:\n";
   std::cout << "1: Ping Server\n";
   std::cout << "2: Message All\n";
-  std::cout << "3: Exit\n";
+  std::cout << "3: Send complex data\n";
+  std::cout << "4: Exit\n";
 #else
   auto job = std::async(std::launch::async, 
     [&client]()
@@ -60,6 +71,7 @@ int main(void)
       key[0] = GetAsyncKeyState('1') & 0x8000;
       key[1] = GetAsyncKeyState('2') & 0x8000;
       key[2] = GetAsyncKeyState('3') & 0x8000;
+      key[3] = GetAsyncKeyState('4') & 0x8000;
     }
 
     if (key[0] && !old_key[0]) 
@@ -68,10 +80,13 @@ int main(void)
     if (key[1] && !old_key[1])
       client.MessageAll();
 
-    if (key[2] && !old_key[2]) 
+    if (key[2] && !old_key[2])
+      client.SendString();
+
+    if (key[3] && !old_key[3]) 
       should_quit = true;
 
-    for (int i = 0; i < 3; i++) 
+    for (int i = 0; i < 4; i++) 
       old_key[i] = key[i];
 #endif
 

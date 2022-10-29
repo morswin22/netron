@@ -1,3 +1,4 @@
+cmake_minimum_required(VERSION 3.1)
 project(netron)
 
 include(FetchContent)
@@ -22,4 +23,5 @@ foreach(example ${netron-examples})
   get_filename_component(example-name ${example} NAME_WE)
   add_executable(${example-name} ${example})
   target_link_libraries(${example-name} netron)
+  set_property(TARGET ${example-name} PROPERTY CXX_STANDARD 11) # the library should work with C++11
 endforeach()
