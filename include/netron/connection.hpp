@@ -4,6 +4,7 @@
 #include <netron/asio.hpp>
 #include <netron/tsqueue.hpp>
 #include <netron/message.hpp>
+#include <netron/config.hpp>
 
 namespace netron 
 {
@@ -22,8 +23,8 @@ namespace netron
       client
     };
 
-    connection(owner parent, asio::io_context& asio_context, asio::ip::tcp::socket socket, tsqueue<owned_message<T>>& messages_in)
-      : m_asio_context(asio_context), m_socket(std::move(socket)), m_messages_in(messages_in)
+    connection(owner parent, asio::io_context& asio_context, asio::ip::tcp::socket socket, tsqueue<owned_message<T>>& messages_in, config_view owner_config)
+      : m_asio_context(asio_context), m_socket(std::move(socket)), m_messages_in(messages_in), m_owner_config(owner_config)
     {
       m_owner_type = parent;
 
@@ -48,6 +49,16 @@ namespace netron
     uint32_t get_id() const
     {
       return m_id;
+    }
+
+    auto get_endpoint() const
+    {
+      return m_socket.remote_endpoint();
+    }
+
+    const auto& get_config() const
+    {
+      return m_remote_config;
     }
 
     void connect_to_client(server_interface<T>* server, uint32_t uid = 0)
@@ -90,15 +101,12 @@ namespace netron
       return m_socket.is_open();
     }
 
-    // TODO [unused]
-    void start_listening()
-    {
-
-    }
-
     // (ASYNC) Send a message to the remote end of this connection
     void send(const message<T>& msg)
     {
+      if (!m_is_ready)
+        throw std::runtime_error("Connection is not ready to send messages");
+
       asio::post(m_asio_context,
         [this, msg]()
         {
@@ -116,6 +124,9 @@ namespace netron
     // (ASYNC) Prime context ready to write a message
     void write_header()
     {
+      if (m_messages_out.front().size() > m_remote_config.max_message_size)
+        throw std::runtime_error("Message size exceeds maximum message size");
+
       asio::async_write(m_socket, asio::buffer(&m_messages_out.front().header, sizeof(message_header<T>)),
         [this](std::error_code ec, std::size_t length)
         {
@@ -137,7 +148,7 @@ namespace netron
           }
           else
           {
-            std::cout << "[" << m_id << "] Write Header Fail.\n";
+            std::cout << "[" << get_id() << "] Write Header Fail.\n";
             m_socket.close();
           }
         }
@@ -161,7 +172,7 @@ namespace netron
           }
           else
           {
-            std::cout << "[" << m_id << "] Write Body Fail.\n";
+            std::cout << "[" << get_id() << "] Write Body Fail.\n";
             m_socket.close();
           }
         }
@@ -174,7 +185,7 @@ namespace netron
       asio::async_read(m_socket, asio::buffer(&m_msg_temp_in.header, sizeof(message_header<T>)),
         [this](std::error_code ec, std::size_t length)
         {
-          if (!ec)
+          if (!ec && m_msg_temp_in.header.size <= m_owner_config.max_message_size)
           {
             if (m_msg_temp_in.header.size > 0)
             {
@@ -188,7 +199,7 @@ namespace netron
           }
           else
           {
-            std::cout << "[" << m_id << "] Read Header Fail.\n";
+            std::cout << "[" << get_id() << "] Read Header Fail.\n";
             m_socket.close();
           }
         }
@@ -207,7 +218,7 @@ namespace netron
           }
           else
           {
-            std::cout << "[" << m_id << "] Read Body Fail.\n";
+            std::cout << "[" << get_id() << "] Read Body Fail.\n";
             m_socket.close();
           }
         }
@@ -242,7 +253,7 @@ namespace netron
           if (!ec)
           {
             if (m_owner_type == owner::client)
-              read_header();
+              read_config();
           }
           else
           {
@@ -266,7 +277,8 @@ namespace netron
               {
                 std::cout << "[" << get_id() << "] Client Validated\n";
                 server->on_client_validated(this->shared_from_this());
-                read_header();
+                write_config();
+                read_config(server);
               }
               else
               {
@@ -283,6 +295,69 @@ namespace netron
           else
           {
             std::cout << "[" << get_id() << "] Client Disconnected (read_validation)\n";
+            m_socket.close();
+          }
+        }
+      );
+    }
+
+    // (ASYNC) Prime context ready to write config
+    void write_config()
+    {
+      asio::async_write(m_socket, asio::buffer(&m_owner_config, sizeof(config)),
+        [this](std::error_code ec, std::size_t length)
+        {
+          if (!ec)
+          {
+            if (m_owner_type == owner::client)
+            {
+              m_is_ready = true;
+              read_header();
+            }
+          }
+          else
+          {
+            std::cout << "[" << get_id() << "] Write Config Fail.\n";
+            m_socket.close();
+          }
+        }
+      );
+    }
+
+    // (ASYNC) Prime context ready to read config
+    void read_config(server_interface<T>* server = nullptr)
+    {
+      asio::async_read(m_socket, asio::buffer(&m_remote_config, sizeof(config)),
+        [this, server](std::error_code ec, std::size_t length)
+        {
+          if (!ec)
+          {
+            // Check config
+            if (m_remote_config.endian == m_owner_config.endian && m_remote_config.version == m_owner_config.version)
+            {
+              if (m_owner_type == owner::server)
+              {
+                std::cout << "[" << get_id() << "] Client Config Validated\n";
+                server->on_client_config_validated(this->shared_from_this());
+                m_is_ready = true;
+                server->on_client_ready(this->shared_from_this());
+                read_header();
+              }
+              else
+                write_config();
+            }
+            else
+            {
+              if (m_owner_type == owner::server)
+                std::cout << "[" << get_id() << "] Client Disconnected (Config Fail)\n";
+              else
+                std::cout << "[" << get_id() << "] Server Disconnected (Config Fail)\n";
+              m_socket.close();
+            }
+          }
+          else
+          {
+            std::cout << "[" << get_id() << "] Read Config Fail.\n";
             m_socket.close();
           }
         }
@@ -313,6 +388,13 @@ namespace netron
     uint64_t m_handshake_out = 0;
     uint64_t m_handshake_in = 0;
     uint64_t m_handshake_check = 0;
+
+    // Client's and server's configuration
+    config_view m_owner_config;
+    config m_remote_config;
+
+    // Is connection ready of message exchange
+    bool m_is_ready = false;
   };
 
 }

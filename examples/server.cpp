@@ -9,13 +9,11 @@ public:
   }
 
 protected:
-  virtual bool on_client_connect(Client client)
+  virtual void on_client_ready(Client client)
   {
     Message msg;
     msg.header.id = CustomMessageTypes::ServerAccept;
     client->send(msg); // Send a welcome message
-
-    return true; // Accept all new connections
   }
 
   virtual void on_client_disconnect(Client client)

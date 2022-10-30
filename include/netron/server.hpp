@@ -5,6 +5,7 @@
 #include <netron/tsqueue.hpp>
 #include <netron/message.hpp>
 #include <netron/connection.hpp>
+#include <netron/config.hpp>
 
 namespace netron 
 {
@@ -16,8 +17,8 @@ namespace netron
     using Client = std::shared_ptr<connection<T>>;
     using Message = message<T>;
 
-    server_interface(uint16_t port)
-      : m_asio_acceptor(m_asio_context, asio::ip::tcp::endpoint(asio::ip::tcp::v4(), port))
+    server_interface(uint16_t port, config cfg = config{})
+      : m_asio_acceptor(m_asio_context, asio::ip::tcp::endpoint(asio::ip::tcp::v4(), port)), m_config(cfg)
     {
 
     }
@@ -67,9 +68,15 @@ namespace netron
           {
             std::cout << "New Connection: " << socket.remote_endpoint() << '\n';
 
-            auto new_connection = std::make_shared<connection<T>>(connection<T>::owner::server, m_asio_context, std::move(socket), m_messages_in);
+            auto new_connection = std::make_shared<connection<T>>(
+              connection<T>::owner::server, 
+              m_asio_context, 
+              std::move(socket), 
+              m_messages_in, 
+              m_config
+            );
           
-            if (on_client_connect(new_connection))
+            if (m_connections.size() < m_config.max_connections && on_client_connect(new_connection))
             {
               m_connections.push_back(std::move(new_connection));
               m_connections.back()->connect_to_client(this, m_id_counter++);
@@ -155,7 +162,7 @@ namespace netron
     // Called when a client connects, has an option to reject the connection
     virtual bool on_client_connect(Client client)
     {
-      return false;
+      return true;
     }
 
     // Called when a client appears to have disconnected
@@ -173,6 +180,18 @@ namespace netron
   public:
     // Called when a client has been validated
     virtual void on_client_validated(Client client)
+    {
+
+    }
+
+    // Called when client's config has been validated
+    virtual void on_client_config_validated(Client client)
+    {
+
+    }
+
+    // Called when every step of establishing connection has finished
+    virtual void on_client_ready(Client client)
     {
 
     }
@@ -195,6 +214,9 @@ namespace netron
 
     // Unique identifier for a client
     uint32_t m_id_counter = 10000;
+
+    // Server's configuration
+    config m_config;
   };
 
 }

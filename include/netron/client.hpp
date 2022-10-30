@@ -25,10 +25,13 @@ namespace netron
   public:
 
     // Connect to server with hostname/ip-address and port
-    bool connect(const std::string& host, const uint16_t port)
+    bool connect(const std::string& host, const uint16_t port, config cfg = config{})
     {
       try
       {
+        // Set config
+        m_config = cfg;
+
         // Resolve hostname/ip-address into tangable physical address
         asio::ip::tcp::resolver resolver(m_asio_context);
         auto endpoints = resolver.resolve(host, std::to_string(port));
@@ -38,7 +41,8 @@ namespace netron
           connection<T>::owner::client,
           m_asio_context,
           asio::ip::tcp::socket(m_asio_context),
-          m_messages_in
+          m_messages_in,
+          m_config
         );
 
         // Tell the connection object to connect to server
@@ -100,6 +104,9 @@ namespace netron
 
     // A single instance of a connection object to server
     std::unique_ptr<connection<T>> m_connection;
+
+    // Client's configuration
+    config m_config;
 
   private:
     // This queue holds all incoming messages from the server
